@@ -14,7 +14,7 @@ import { CONTRACT } from './payload.js';
 import { buildPrompt, buildPromptParts } from './prompt.js';
 import { SCHEMAS } from './schemas.js';
 import { extractJSON, contractOK } from './parse.js';
-import { validatePlan, validateReview, validateDebrief } from './validate.js';
+import { validatePlan, validateReview, validateDebrief, validateImport } from './validate.js';
 import { isChangeList, changesOntoPlan } from './refine-changes.js';
 
 /**
@@ -71,7 +71,9 @@ export async function attemptOnce({ adapter, cfg, kind, payload, model, timeoutM
     ? validateReview(parsed.value, payload.plan, { customIds, equipment, offered })
     : kind === 'debrief'
       ? validateDebrief(parsed.value)
-      : validatePlan(answer, {
+      : kind === 'import'
+        ? validateImport(parsed.value)
+        : validatePlan(answer, {
       customIds, equipment, offered,
       workingWeights: payload.history?.workingWeights,
       daysPerWeek: payload.coachProfile?.daysPerWeek
@@ -79,6 +81,7 @@ export async function attemptOnce({ adapter, cfg, kind, payload, model, timeoutM
 
   if (!checked.ok) return { ok: false, repairable: !repair, errors: checked.errors, raw: r.text, errorClass: 'unusable' };
   if (checked.nochange) return { ok: true, nochange: true, reading: checked.reading };
+  if (kind === 'import') return { ok: true, result: { import: checked.import } };
   return { ok: true, result: checked.proposal || { bundle: checked.bundle, summary: checked.bundle.summary } };
 }
 

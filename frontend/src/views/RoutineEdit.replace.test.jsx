@@ -63,6 +63,23 @@ afterEach(() => {
 })
 
 describe('RoutineEdit — Replace exercise', () => {
+  it('shows a written alternative as a chip and swaps it in, keeping the prescription', () => {
+    mount()
+    act(() => useStore.getState().update(s => {
+      s.routines[0].ex[0].alt = [DB_BENCH]
+      s.routines[0].ex[0].altCfg = { [DB_BENCH]: { sets: 3, reps: 12, weight: 30 } }
+    }))
+    const chip = host.querySelector('.alt-line .tag')
+    expect(chip.textContent.toLowerCase()).toContain('dumbbell bench press')
+    expect(chip.textContent).toContain('30')
+    act(() => chip.click())
+    // The alternative's own 3×12 @30, not the main movement's 4×6 @80.
+    expect(slots()[0]).toMatchObject({ id: DB_BENCH, sets: 3, reps: 12, weight: 30, alt: [BENCH] })
+    // Swapping back restores the main movement's own 4×6 @80.
+    act(() => host.querySelector('.alt-line .tag').click())
+    expect(slots()[0]).toMatchObject({ id: BENCH, sets: 4, reps: 6, weight: 80, alt: [DB_BENCH] })
+  })
+
   it('"+" on a picker row swaps the exercise in place and keeps the slot\'s numbers', () => {
     mount()
     const onPick = openReplace()

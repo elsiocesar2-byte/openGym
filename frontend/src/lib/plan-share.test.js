@@ -300,6 +300,22 @@ describe('plan-share links and media (#246)', () => {
   })
 })
 
+describe('alternative movements in a shared plan', () => {
+  it('exports a custom alternative and remaps it to the recipient’s new id', () => {
+    const source = {
+      unit: 'kg', week: {},
+      customEx: [{ id: 'alt1', n: 'Cable rear fly', bp: 'shoulders' }],
+      routines: [{ id: 'r', name: 'Push', ex: [{ id: '0025', sets: 3, reps: 5, weight: 60, alt: ['alt1'] }] }]
+    }
+    const bundle = buildPlanBundle(source, 'Plan')
+    expect(bundle.customEx.map(c => c.n)).toContain('Cable rear fly')
+
+    const target = { unit: 'kg', routines: [], customEx: [], week: {} }
+    mergePlan(target, parsePlan(JSON.stringify(bundle)))
+    expect(target.routines[0].ex[0].alt).toEqual([target.customEx[0].id])
+  })
+})
+
 describe('parsePlan refuses a file that is not a plan in words', () => {
   it('text that is not JSON says it is not a plan file, not the parser message', () => {
     expect(() => parsePlan('hello there')).toThrow('this isn’t an openGym plan file')

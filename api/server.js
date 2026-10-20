@@ -70,6 +70,10 @@ const ALLOW_GUEST = !/^(0|false|no|off)$/i.test(process.env.ALLOW_GUEST || '');
 // every account that opts in, so an instance has to ask for it. While it is off every password
 // route answers 404 and the app shows none of it; hashes already stored stay where they are.
 const PASSWORD_LOGIN = /^(1|true|yes|on)$/i.test(process.env.PASSWORD_LOGIN || '');
+// Passkeys need a secure origin whose host is a registrable RP ID. A self-hosted box reached at
+// http://192.168.x.x has neither, so a LAN deployment can switch them off and offer passwords
+// only instead of failing after the user has typed a name.
+const PASSKEY_LOGIN = !/^(0|false|no|off)$/i.test(process.env.PASSKEY_LOGIN || '');
 // The language the sign-in screen, and every profile that never picked one, starts in (#303) —
 // for an instance whose people share a language. Only a tag's shape is checked here; the app
 // matches it against the languages it has and ignores one it does not know. Unset, it is left
@@ -1936,6 +1940,9 @@ const routes = {
       invite_only: INVITE_ONLY, allow_guest: ALLOW_GUEST,
       // Only when on, so an instance without passwords answers exactly as it did before (#118).
       ...(PASSWORD_LOGIN ? { password_login: true } : {}),
+      // Only when switched off: an instance from before this flag answers byte-for-byte as it
+      // did, and the client keeps its old passkey-first behaviour.
+      ...(PASSKEY_LOGIN ? {} : { passkey_login: false }),
       // Public: the sign-in screen is the first thing that reads it.
       ...(DEFAULT_LANG ? { default_lang: DEFAULT_LANG } : {}),
       // Public like the two flags above: the caps are not a secret, and the absence of the

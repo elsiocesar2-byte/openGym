@@ -21,7 +21,11 @@ function RegisterSheet({ close }) {
   // A password is offered only where the instance allows it (#118), and is the only choice in a
   // browser that cannot make a passkey. Where both work, the passkey stays the first one.
   const pwOn = passwordOn(config)
-  const [how, setHow] = useState(webauthnOK() ? 'passkey' : 'password')
+  // The server may have switched passkeys off (a plain-HTTP LAN box). `webauthnOK` covers the
+  // browser and secure-context side; this covers the instance's own choice.
+  const passkeyOk = webauthnOK() && config?.passkey_login !== false
+  const [how, setHow] = useState(passkeyOk ? 'passkey' : 'password')
+  useEffect(() => { if (!passkeyOk) setHow('password') }, [passkeyOk])
   const ref = useRef(null)
   useEffect(() => { setTimeout(() => ref.current?.focus(), 250) }, [])
   // Boot already fetched this; retry here only if that attempt failed, so the invite field still
@@ -38,7 +42,7 @@ function RegisterSheet({ close }) {
       else { await pullState(); useUI.getState().toast(t('Welcome, {0}', u.name)) }
     } catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') useUI.getState().toast(passkeyError(e, t('Registration failed'))) }
   }
-  const choose = pwOn && webauthnOK() && <>
+  const choose = pwOn && passkeyOk && <>
     <Segmented options={[{ value: 'passkey', label: t('Passkey'), icon: 'fingerprint' }, { value: 'password', label: t('Password'), icon: 'key' }]}
       value={how} onChange={setHow} />
     <div style={{ height: 12 }} />
@@ -70,6 +74,7 @@ export default function Login() {
   const config = useStore(s => s.config)
   const canGuest = guestAllowed(config)
   const pwOn = passwordOn(config)
+  const passkeyOk = webauthnOK() && config?.passkey_login !== false
   const register = () => useUI.getState().openSheet(close => <RegisterSheet close={close} />)
   const signIn = async () => {
     try { const u = await passkeyLogin(); setUser(u, { adopt: true }); await adoptProfile(askAddDeviceData); useUI.getState().toast(t('Welcome back, {0}', u.name)) }
@@ -100,7 +105,7 @@ export default function Login() {
     <div className="narrow" style={wrap}>
       {head}
       <div className="muted" style={{ marginBottom: 34 }}>{t('Your workouts. Your weights. Your profile.')}</div>
-      {webauthnOK() ? <>
+      {passkeyOk ? <>
         <Button variant="primary" icon="fingerprint" onClick={signIn}>{t('Sign in with passkey')}</Button>
         <div style={{ height: 10 }} />
         {pwOn && <><Button icon="key" onClick={() => openPasswordSignIn()}>{t('Sign in with password')}</Button><div style={{ height: 10 }} /></>}
@@ -113,7 +118,9 @@ export default function Login() {
       </> : pwOn ? <>
         {/* Plain http on a LAN address, or a browser without passkey support: the password is
             the way in, and the only way to create a profile from here. */}
-        <div className="card small muted" style={{ textAlign: 'start', marginBottom: 14 }}>{t("This browser doesn't support passkeys. Sign in with your name and password instead.")}</div>
+        <div className="card small muted" style={{ textAlign: 'start', marginBottom: 14 }}>{config?.passkey_login === false
+          ? t('Passkeys are off on this server. Sign in with your name and password.')
+          : t("This browser doesn't support passkeys. Sign in with your name and password instead.")}</div>
         <Button variant="primary" icon="key" onClick={() => openPasswordSignIn()}>{t('Sign in with password')}</Button>
         <div style={{ height: 10 }} />
         <Button icon="plusCircle" onClick={register}>{t('Create new profile')}</Button>

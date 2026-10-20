@@ -17,7 +17,15 @@ export const vault = () => (IS_APPLE ? t('iCloud Keychain') : IS_ANDROID ? t('Go
 // navigator.credentials: some browsers expose WebAuthn while that generic Credential Management
 // API check produces a false negative (notably Chrome on iOS). The real create/get calls still run
 // only after the user chooses a passkey action and surface any genuine browser error there.
-export const webauthnOK = () => typeof window.PublicKeyCredential !== 'undefined'
+// A secure context is a separate requirement: on plain-HTTP LAN addresses the API exists but the
+// ceremony cannot succeed (an IP is not a registrable RP ID). Treat that as "no passkeys" so the
+// password form is offered first instead of failing after the name is entered.
+export const webauthnOK = () => {
+  if (typeof window.PublicKeyCredential === 'undefined') return false
+  if (window.isSecureContext) return true
+  const h = window.location && window.location.hostname
+  return h === 'localhost' || h === '127.0.0.1' || h === '[::1]'
+}
 
 // The paired mobile app (lib/remote.js) is the only caller of these — everywhere else stays on
 // same-origin cookies, so remoteBase/remoteToken stay empty and api() behaves exactly as before.

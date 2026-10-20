@@ -143,6 +143,7 @@ async function run(S, kind, opts, d, adapter) {
   const key = await getApiKey()
   const payload = payloadLib.build(S, {
     handle: await handle(), kind, intake: opts.intake, note: opts.note, refine: opts.refine, previous: opts.previous, workoutId: opts.workoutId,
+    importText: opts.importText,
     lang: getLang()   // what the app shows, which a profile that never picked a language does not store (#303)
   })
   const attempt = await runPipeline({
@@ -185,6 +186,12 @@ function workoutMetaOf(S, workoutId) {
   const w = all.find(x => x.id === workoutId) || all[all.length - 1]
   return w ? { id: w.id, d: w.d, name: w.name || null } : null
 }
+
+/**
+ * Transcribe a pasted plan on a phone that brought its own key. The text is the whole input:
+ * `maxMessageLen` is a chat-composer setting and has nothing to say about it.
+ */
+export const localImport = (S, text) => start(S, 'import', { importText: String(text || '').slice(0, payloadLib.MAX_IMPORT_CHARS) })
 
 // Test seam.
 export function _resetLocal() { job = null; lastError = null; last = null }

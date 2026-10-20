@@ -9,6 +9,7 @@ import * as jobs from './jobs.js';
 import { computeCohort } from './cohort.js';
 import { adapterFor } from './adapters/index.js';
 import { canDropPrivileges } from './adapters/spawn.js';
+import * as payloadLib from './core/payload.js';
 import { DATA_CATEGORIES } from './core/payload.js';
 import { validateBaseUrl, validateHeaders, baseUrlFor } from './core/providers.js';
 
@@ -79,6 +80,19 @@ export function coachRoutes({ json, readBody, readSession, requireAdmin }) {
           lang: body.lang,
           refine: body.refine ? String(body.refine).slice(0, cfgStore.MAX_MESSAGE_LEN_CEILING) : null
         });
+        json(res, 202, { job });
+      } catch (e) { failEnqueue(res, e); }
+    },
+
+    // A plan the user pasted, transcribed (not designed) by the model. The text is user data,
+    // so it skips the chat composer's `maxMessageLen`; a whole plan is a different size class.
+    'POST /api/coach/import': async (req, res) => {
+      const user = guard(req, res); if (!user) return;
+      const body = await readBody(req);
+      const text = body.text ? String(body.text).slice(0, payloadLib.MAX_IMPORT_CHARS) : '';
+      if (!text.trim()) return json(res, 400, { error: 'paste a plan first', code: 'empty' });
+      try {
+        const job = jobs.enqueue(user.id, { kind: 'import', lang: body.lang, importText: text });
         json(res, 202, { job });
       } catch (e) { failEnqueue(res, e); }
     },

@@ -541,6 +541,12 @@ h4.sec{
   font-weight:500;text-transform:capitalize;
 }
 .tag.acc{background:var(--acc-soft);color:var(--acc)}
+/* "or this other movement": a second line under an exercise, in the same card. */
+.alt-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:4px}
+.alt-line .tag{cursor:pointer}
+.alt-opt{display:inline-flex;align-items:center;gap:1px}
+.alt-edit{border:0;background:none;color:var(--dim);padding:0 2px;cursor:pointer;font-size:13px;line-height:1}
+.alt-edit:hover{color:var(--text)}
 /* Left / Right on a per-side row: one width for both (#322). The two hidden words share the
    visible one's grid cell, so the pill is as wide as the longer word. */
 .tag.sidepill{display:inline-grid;justify-items:center;flex:none}

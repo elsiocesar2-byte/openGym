@@ -239,12 +239,15 @@ export function enqueue(uid, opts) {
     id: crypto.randomBytes(8).toString('hex'),
     uid,
     forgetSeq: forgetSeq.get(uid) || 0,
-    kind: opts.kind,                                  // 'create' | 'review' | 'debrief'
+    kind: opts.kind,                                  // 'create' | 'review' | 'debrief' | 'import'
     trigger: opts.trigger || 'manual',                // 'manual' | 'scheduled'
     workoutId: opts.workoutId ? String(opts.workoutId).slice(0, 40) : null,
     intake: opts.intake || null,
     note: clampMessage(opts.note),
     refine: clampMessage(opts.refine),
+    // The pasted plan is not a chat message: it must not be cut to `maxMessageLen` (1000 by
+    // default), or a three-day split arrives at the model as its first paragraph.
+    importText: opts.kind === 'import' ? String(opts.importText || '').slice(0, payloadLib.MAX_IMPORT_CHARS) : null,
     lang: payloadLib.langTag(opts.lang),              // the language the app was showing (#303)
     state: 'queued',
     startedAt: Date.now()
@@ -337,6 +340,7 @@ async function execute(job) {
     intake: job.intake,
     note: job.note,
     refine: job.refine,
+    importText: job.importText,
     previous: pendingCreate?.bundle || null,
     workoutId: job.workoutId,
     // The app says which language it is in. A scheduled review has no app behind it: a profile

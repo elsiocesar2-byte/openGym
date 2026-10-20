@@ -254,12 +254,17 @@ function sweepDayPlan(s, fromIso) {
   recordDayPlanDrops(s, dropped)
 }
 
-/** Snapshot `{routines, week}` before touching either. The unit of revert (FR-30/31). */
+/**
+ * Snapshot `{routines, week, customEx}` before touching any of them. The unit of revert
+ * (FR-30/31). `customEx` is included because a created/imported plan can add exercises, and
+ * undoing the plan without removing them would leave orphans the user never created.
+ */
 export function pushSnapshot(s, proposalId, label) {
   const c = coachOf(s)
   c.snapshots = [...(c.snapshots || []), {
     at: Date.now(), proposalId: proposalId || null, label: label || '',
-    routines: clone(s.routines || []), week: clone(s.week || {})
+    routines: clone(s.routines || []), week: clone(s.week || {}),
+    customEx: clone(s.customEx || [])
   }].slice(-SNAPSHOT_MAX)
   trim(s)
 }
@@ -278,6 +283,7 @@ export function revertLast(s) {
   s.routines = clone(snap.routines)
   s.week = clone(snap.week)
   // Snapshots taken before this field existed have nothing to put back.
+  if (snap.customEx) s.customEx = clone(snap.customEx)
   if (snap.dayPlanRestore) Object.assign(s.dayPlan, snap.dayPlanRestore)
   appendLog(s, { kind: 'revert', at: Date.now(), proposalId: snap.proposalId, summary: t('Reverted the last Coach changes.') })
   return true

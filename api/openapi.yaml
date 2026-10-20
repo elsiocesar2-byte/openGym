@@ -2529,6 +2529,50 @@ paths:
         '429': { $ref: '#/components/responses/CoachRefused' }
         '503': { $ref: '#/components/responses/CoachOff' }
 
+  /api/coach/import:
+    post:
+      tags: [coach]
+      operationId: postCoachImport
+      summary: Read a plan the user pasted
+      description: |
+        Queues an `import` job that transcribes a plan the person wrote elsewhere: the days,
+        the exercise names exactly as written, and their sets, reps and notes. The model does
+        not choose exercises and gets no library; the app matches each name to its catalogue
+        afterwards and keeps anything it does not know as a custom exercise under the written
+        name. The answer is 202 and a job id; the transcription arrives through
+        `GET /api/coach/status`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+                  maxLength: 20000
+                  description: The whole pasted plan. Larger than a chat message on purpose.
+                lang:
+                  type: string
+                  pattern: '^[A-Za-z]{2,3}([-_][A-Za-z0-9]{2,8})?$'
+                  description: The language the app is showing, which the Coach writes in.
+            example: { text: "周一 推\n杠铃卧推 4x8-12\n招财猫 3x15", lang: zh }
+      responses:
+        '202': { $ref: '#/components/responses/CoachJobQueued' }
+        '400':
+          description: The pasted text was empty.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: "paste a plan first", code: "empty" }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CoachRefused' }
+        '409': { $ref: '#/components/responses/CoachRefused' }
+        '429': { $ref: '#/components/responses/CoachRefused' }
+        '503': { $ref: '#/components/responses/CoachOff' }
+
   /api/coach/review:
     post:
       tags: [coach]

@@ -488,6 +488,29 @@ describe('created plans', () => {
     expect(s.routines).toHaveLength(2)
   })
 
+  it('undoes the custom exercises an imported plan created, not just the routines', () => {
+    // An import is allowed to mint exercises, so revert has to take them back too; otherwise
+    // undoing the plan leaves names in the library that the user never wrote by hand.
+    const s = JSON.parse(JSON.stringify(state({ routines: [], week: {}, customEx: [] })))
+    applyCreatedPlan(s, {
+      id: 'p-import', kind: 'import',
+      bundle: {
+        opengym_plan: 1, name: 'Pasted', routines: [{
+          id: 'x1', name: 'Push', ex: [
+            { id: '0001', sets: 3, reps: 10, mode: 'reps' },
+            { id: 'c1', sets: 3, reps: 15, mode: 'reps' }
+          ]
+        }],
+        customEx: [{ id: 'c1', n: '招财猫', bp: 'shoulders' }]
+      }
+    }, { schedule: false })
+    expect(s.customEx.map(c => c.n)).toEqual(['招财猫'])
+    expect(s.routines).toHaveLength(1)
+    expect(revertLast(s)).toBe(true)
+    expect(s.customEx).toEqual([])
+    expect(s.routines).toEqual([])
+  })
+
   const bundle = {
     opengym_plan: 1, name: 'Coach plan', summary: 'three days',
     week: { 1: 'x1', 3: 'x2' },

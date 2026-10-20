@@ -10,6 +10,27 @@
 const ANY = { type: ['number', 'string', 'boolean', 'object', 'array', 'null'] };
 const STR = { type: 'string' };
 const STRINGS = { type: 'array', items: { type: 'string' } };
+// An alternative is a real exercise the person may do instead, so it can carry its own
+// prescription: "哑铃侧平举 5–7.5kg" is not the same sets/weight as the cable movement above it.
+const ALTERNATIVES = {
+  type: 'array',
+  maxItems: 6,
+  items: {
+    type: 'object',
+    properties: {
+      name: STR,
+      sets: { type: 'integer' },
+      reps: { type: 'integer' },
+      repsMin: { type: 'integer' },
+      repsMax: { type: 'integer' },
+      weight: { type: 'number' },
+      sec: { type: 'integer' },
+      min: { type: 'integer' },
+      note: STR
+    },
+    required: ['name']
+  }
+};
 
 export const REVIEW_SCHEMA = {
   type: 'object',
@@ -98,6 +119,52 @@ export const CREATE_SCHEMA = {
   required: ['coach_contract', 'week', 'routines']
 };
 
+// Import: the model only *reads* a plan the user already wrote. It never picks exercises from
+// the library and never decides what to train — the client matches each `name`/`query` against
+// the catalogue and creates a custom exercise when nothing matches. No `id` fields on purpose:
+// an id here would invite the model to invent library entries, which is the substitution bug
+// this task exists to end.
+export const IMPORT_SCHEMA = {
+  type: 'object',
+  properties: {
+    coach_contract: { type: 'integer' },
+    name: STR,
+    summary: STR,
+    routines: {
+      type: 'array',
+      maxItems: 7,
+      items: {
+        type: 'object',
+        properties: {
+          name: STR,
+          emoji: STR,
+          day: STR,
+          weekday: { type: 'integer' },
+          ex: {
+            type: 'array',
+            maxItems: 30,
+            items: {
+              type: 'object',
+              properties: {
+                name: STR, query: STR, bp: STR,
+                sets: { type: 'integer' }, reps: { type: 'integer' },
+                repsMin: { type: 'integer' }, repsMax: { type: 'integer' },
+                sec: { type: 'integer' }, min: { type: 'integer' },
+                weight: { type: 'number' }, note: STR,
+                side: { type: 'boolean' }, bodyweight: { type: 'boolean' },
+                alternatives: ALTERNATIVES
+              },
+              required: ['name']
+            }
+          }
+        },
+        required: ['name', 'ex']
+      }
+    }
+  },
+  required: ['coach_contract', 'routines']
+};
+
 export const DEBRIEF_SCHEMA = {
   type: 'object',
   properties: {
@@ -111,4 +178,6 @@ export const DEBRIEF_SCHEMA = {
   required: ['coach_contract', 'summary', 'score']
 };
 
-export const SCHEMAS = { review: REVIEW_SCHEMA, create: CREATE_SCHEMA, refine: CREATE_SCHEMA, debrief: DEBRIEF_SCHEMA };
+export const SCHEMAS = {
+  review: REVIEW_SCHEMA, create: CREATE_SCHEMA, refine: CREATE_SCHEMA, debrief: DEBRIEF_SCHEMA, import: IMPORT_SCHEMA,
+};

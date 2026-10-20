@@ -618,6 +618,95 @@ function currentOf(type, routine, planned, plan, target) {
 
 function fail(errors) { return { ok: false, errors }; }
 
+/* =============================== imported plans =============================== */
+
+// The body parts the catalogue actually uses. Imported exercises are user data, so an unknown
+// value is defaulted rather than rejected — the name is the part that must survive.
+const IMPORT_BPS = new Set(['back', 'cardio', 'chest', 'full body', 'lower arms', 'lower legs', 'neck', 'shoulders', 'upper arms', 'upper legs', 'waist']);
+const MAX_IMPORT_EX = 30;
+
+/**
+ * Validate the transcription of a plan the user pasted.
+ *
+ * Deliberately *not* validatePlan: there are no library ids to resolve and no week to build.
+ * The answer is a faithful list of names plus the prescription the user wrote; the client
+ * matches the names and creates customs for the rest. Any id the model invents is dropped
+ * rather than trusted.
+ * Returns { ok, import:{ name, summary, routines } } | { ok:false, errors }.
+ */
+export function validateImport(data) {
+  if (!data || typeof data !== 'object') return fail(['the answer was not an object']);
+  const errors = [];
+  const input = Array.isArray(data.routines) ? data.routines : [];
+  if (!input.length) errors.push('routines is required — transcribe at least one training day');
+  if (input.length > MAX_ROUTINES) errors.push(`at most ${MAX_ROUTINES} routines can be imported at once`);
+  const routines = input.slice(0, MAX_ROUTINES).map((r, ri) => {
+    const where = `routines[${ri}]`;
+    if (!r || typeof r !== 'object') { errors.push(`${where} must be an object`); return null; }
+    if (!isStr(r.name)) errors.push(`${where}.name is required — use the day title from the text`);
+    const exIn = Array.isArray(r.ex) ? r.ex : [];
+    if (!exIn.length) errors.push(`${where}.ex is required — a day needs at least one exercise`);
+    if (exIn.length > MAX_IMPORT_EX) errors.push(`${where} has more than ${MAX_IMPORT_EX} exercises`);
+    const ex = exIn.slice(0, MAX_IMPORT_EX).map((e, ei) => {
+      const at = `${where}.ex[${ei}]`;
+      if (!e || typeof e !== 'object' || !isStr(e.name)) { errors.push(`${at}.name is required`); return null; }
+      const out = { name: clampStr(e.name.trim(), 80), bp: IMPORT_BPS.has(e.bp) ? e.bp : 'waist' };
+      if (isStr(e.query)) out.query = clampStr(e.query.trim(), 120);
+      if (isInt(e.sets, 1, 20)) out.sets = e.sets;
+      if (isInt(e.reps, 1, 200)) out.reps = e.reps;
+      if (isInt(e.repsMin, 1, 200)) out.repsMin = e.repsMin;
+      if (isInt(e.repsMax, 1, 200)) out.repsMax = e.repsMax;
+      if (isInt(e.sec, 1, 3600)) out.sec = e.sec;
+      if (isInt(e.min, 1, 600)) out.min = e.min;
+      if (isNum(e.weight) && e.weight >= 0 && e.weight <= MAX_WEIGHT) out.weight = Math.round(e.weight * 100) / 100;
+      if (isStr(e.note)) out.note = clampStr(e.note.trim(), 500);
+      if (e.side === true) out.side = true;
+      if (e.bodyweight === true) out.bodyweight = true;
+      // An alternative can be a plain name (older prompt output) or an object with its own
+      // prescription. Keep both shapes readable so a model that regresses to strings still
+      // imports; the client treats a bare name as "same numbers as the main movement".
+      const alts = (Array.isArray(e.alternatives) ? e.alternatives : []).map(a => {
+        if (isStr(a)) return { name: clampStr(a.trim(), 80) }
+        if (!a || typeof a !== 'object' || !isStr(a.name)) return null
+        const alt = { name: clampStr(a.name.trim(), 80) }
+        if (isInt(a.sets, 1, 20)) alt.sets = a.sets
+        if (isInt(a.reps, 1, 200)) alt.reps = a.reps
+        if (isInt(a.repsMin, 1, 200)) alt.repsMin = a.repsMin
+        if (isInt(a.repsMax, 1, 200)) alt.repsMax = a.repsMax
+        if (isNum(a.weight) && a.weight >= 0 && a.weight <= MAX_WEIGHT) alt.weight = Math.round(a.weight * 100) / 100
+        if (isInt(a.sec, 1, 3600)) alt.sec = a.sec
+        if (isInt(a.min, 1, 600)) alt.min = a.min
+        if (isStr(a.note)) alt.note = clampStr(a.note.trim(), 300)
+        return alt
+      }).filter(Boolean).slice(0, 6)
+      if (alts.length) out.alternatives = alts;
+      // A range with no floor is not a range; keep the ceiling honest for the client.
+      if (out.repsMin != null && out.repsMax != null && out.repsMax < out.repsMin) {
+        errors.push(`${at} has repsMax below repsMin`);
+      }
+      return out;
+    }).filter(Boolean);
+    if (isStr(r.name) && ex.length) {
+      const out = { name: clampStr(r.name.trim(), 60), ex };
+      if (r.weekday != null && isInt(r.weekday, 1, 7)) out.weekday = r.weekday;
+      if (isStr(r.day)) out.day = clampStr(r.day.trim(), 40);
+      if (isStr(r.emoji)) out.emoji = glyphStr(r.emoji);
+      return out;
+    }
+    return null;
+  }).filter(Boolean);
+  if (!routines.length) errors.push('no routine with a name and at least one exercise survived — transcribe the days as written');
+  if (errors.length) return fail(errors);
+  return {
+    ok: true,
+    import: {
+      name: clampStr(isStr(data.name) ? data.name.trim() : 'Imported plan', 60),
+      summary: clampStr(isStr(data.summary) ? data.summary.trim() : '', 600),
+      routines
+    }
+  };
+}
+
 /* =============================== workout debriefs =============================== */
 
 const DEBRIEF_LISTS = ['highlights', 'watch', 'nextTime'];

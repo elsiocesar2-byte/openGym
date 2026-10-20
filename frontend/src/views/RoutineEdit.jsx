@@ -418,6 +418,44 @@ export default function RoutineEdit() {
       exConfigSheet(ex, next, cfg => commit(ex, current => ({ id: ex.id, sg: current.sg, ...cfg })), null, r, null, null, t('Replace'))
     }, { title: t('Replace exercise'), like: openedOn })
   }
+  // The plan wrote "or this other movement". Put that other movement in the same slot without
+  // losing the prescription (sets, reps, load, rest, progression), and keep the old one as the
+  // alternative so the swap goes both ways.
+  const swapAlt = (i, altId) => {
+    const live = useStore.getState().S
+    let name = ''
+    edit(x => {
+      const cur = x[i]
+      if (!cur || cur.id === altId) return
+      const oldId = cur.id
+      // An alternative brings its own numbers when the plan wrote them; a value it did not
+      // write still falls back to the main movement. The old movement is stored with the
+      // prescription it had, so swapping back does not silently reset the load.
+      const over = cur.altCfg && cur.altCfg[altId] ? cur.altCfg[altId] : null
+      const { id: _id, alt: _alt, altCfg: _altCfg, ...oldPreset } = cur
+      const next = replaceSlotExercise(cur, altId, live, id)
+      const alt = [...new Set([oldId, ...(cur.alt || []).filter(a => a !== altId)])].filter(a => a !== altId)
+      const altCfg = { ...(cur.altCfg || {}), [oldId]: oldPreset }
+      delete altCfg[altId]
+      x[i] = { ...next, ...(over || {}), ...(alt.length ? { alt } : {}), altCfg }
+      name = exerciseNameText(exOr(altId))
+    })
+    if (name) toast(t('Replaced with “{0}”', name))
+  }
+  // Edit the alternative's own sets/reps/load without making it the main movement first.
+  const editAlt = (i, altId) => {
+    const cur = S.routines.find(r => r.id === id)?.ex[i]
+    const altEx = exOr(altId)
+    if (!cur || !altEx) return
+    const { id: _id, alt: _alt, altCfg, ...base } = cur
+    exConfigSheet(altEx, { ...base, ...(altCfg && altCfg[altId] ? altCfg[altId] : {}) }, cfg => {
+      edit(x => {
+        const slot = x[i]
+        if (!slot) return
+        x[i] = { ...slot, altCfg: { ...(slot.altCfg || {}), [altId]: cfg } }
+      })
+    }, null, r, null, null)
+  }
   // This routine on paper (#282): the weekly printout's page for one session, through the same
   // two print paths — the browser's print dialog (→ Save as PDF) on the web, the native Print
   // plugin in the app, where the WebView has no window.print().
@@ -526,15 +564,29 @@ export default function RoutineEdit() {
       // screen reader would lose inside one): the name is, a real <button> a click bubbles up
       // from. The long press treats it as the row (data-row-open, useRoutineReorder).
       const item = <div className={'item' + (inSS.has(i) ? ' in-ss' : '')} onClick={() => {
-          exConfigSheet(ex, e, cfg => edit(x => { x[i] = { id: x[i].id, sg: x[i].sg, ...(x[i].sg ? { sgName: x[i].sgName, sgRest: x[i].sgRest } : {}), ...cfg }; cleanupSg(x) }), removeHere, r, null, () => replace(i))
+          exConfigSheet(ex, e, cfg => edit(x => { x[i] = { id: x[i].id, sg: x[i].sg, ...(x[i].sg ? { sgName: x[i].sgName, sgRest: x[i].sgRest } : {}), ...(Array.isArray(x[i].alt) && x[i].alt.length ? { alt: x[i].alt } : {}), ...(x[i].altCfg && Object.keys(x[i].altCfg).length ? { altCfg: x[i].altCfg } : {}), ...cfg }; cleanupSg(x) }), removeHere, r, null, () => replace(i))
         }}>
           {/* Shown on pointer devices only (index.css .routine-grip); the Move buttons and the
               long press stay the way in for a keyboard and a finger. */}
           <span className="routine-grip" data-drag-handle aria-hidden="true" title={t('Reorder exercises')}><Icon name="grip" /></span>
           {ssPos.has(i) && <span className="ss-pos" aria-label={t('Superset position {0}', ssPos.get(i))}>{ssPos.get(i)}</span>}
           <Thumb ex={ex} />
-          <button type="button" className="grow item-open" data-row-open><span className={`tt ${exerciseNameClass(ex)}`}>{exerciseNameFor(ex)}</span><span className="ss">{exLine(e, S.unit, speedUnitOf(S))}</span>
-            {e.note && <span className="small dim" style={{ marginTop: 2 }}>{e.note}</span>}</button>
+          <div className="grow" style={{ minWidth: 0 }}>
+            <button type="button" className="item-open" data-row-open style={{ width: '100%' }}><span className={`tt ${exerciseNameClass(ex)}`}>{exerciseNameFor(ex)}</span><span className="ss">{exLine(e, S.unit, speedUnitOf(S))}</span>
+              {e.note && <span className="small dim" style={{ marginTop: 2 }}>{e.note}</span>}</button>
+            {(Array.isArray(e.alt) ? e.alt : []).length > 0 && <div className="alt-line">
+              <span className="small dim">{t('Alternatives')}:</span>
+              {e.alt.map(aid => {
+                const alt = exOr(aid); if (!alt) return null
+                const cfg = e.altCfg && e.altCfg[aid]
+                const load = cfg && cfg.weight != null ? ` · ${cfg.weight}${S.unit || 'kg'}` : ''
+                return <span key={aid} className="alt-opt">
+                  <button type="button" className="tag" onClick={ev => { ev.stopPropagation(); swapAlt(i, aid) }}>{exerciseNameFor(alt)}{load}</button>
+                  <button type="button" className="alt-edit" title={t('Edit alternative')} aria-label={t('Edit alternative')} onClick={ev => { ev.stopPropagation(); editAlt(i, aid) }}>✎</button>
+                </span>
+              })}
+            </div>}
+          </div>
           {noEquip && <span className="tag" style={{ color: 'var(--orange)', borderColor: 'var(--orange)' }} title={t('Needs {0}, which isn’t in your active profile', t(ex.eq))}><Icon name="warning" /></span>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 'none', alignItems: 'center' }}>
             {i > 0 && <button className={'iconbtn' + (linkedPrev ? ' on-ss' : '')} title={t('Superset with exercise above')} style={{ width: 32, height: 28, borderRadius: 8, fontSize: 15 }} onClick={ev => { ev.stopPropagation(); toggleLink(i) }}><Icon name="link" /></button>}

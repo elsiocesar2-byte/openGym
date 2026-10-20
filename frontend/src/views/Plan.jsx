@@ -5,7 +5,7 @@ import { useUI } from '../store/useUI.js'
 import { DAYN, DAYS, weekOrder, weekStartOf, uid, exCount, routineCount, todayISO, fmtDate } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
 import {
-  dayAssignSheet, starterPlanSheet, confirmSheet, menuSheet,
+  dayAssignSheet, starterPlanSheet, confirmSheet, menuSheet, planPasteImportSheet,
   planHasRoutines, exportPlanFile, printWholePlan, importPlanFile,
 } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
@@ -152,6 +152,7 @@ export default function Plan() {
         { icon: 'share', label: t('Export plan file'), sub: t('A small file a friend can import into their own openGym. Routines only, none of your workouts or weigh-ins.'), disabled: !has, onClick: exportPlanFile },
         { icon: 'note', label: t('Print / Save as PDF'), disabled: !has, onClick: printWholePlan },
         { icon: 'download', label: t('Import a plan file'), onClick: () => fileRef.current?.click() },
+        ...(showCoach && !DEMO ? [{ icon: 'sparkles', label: t('Import a plan from text'), onClick: planPasteImportSheet }] : []),
         { icon: 'clipboard', label: t('Load starter plan'), onClick: starterPlanSheet },
       ],
     })

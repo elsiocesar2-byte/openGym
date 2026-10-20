@@ -31,6 +31,9 @@ import ExerciseViewToggle from './components/ExerciseViewToggle.jsx'
 import { sameMuscleFirst, swapMuscleOf } from './lib/similar-exercises.js'
 import { exerciseMuscleSnapshot, loadOfWorkouts, MUSCLES, MUSCLE_NAME, muscleWeightsOf, normalizeMuscleGroups, hasExplicitMuscleMetadata, inMuscleOrder } from './lib/muscles.js'
 import { parseImport, mergeImport } from './lib/import-csv.js'
+import { applyCreatedPlan } from './lib/coach.js'
+import { useCoachStatus, requestImport, resolvePending } from './lib/coach-api.js'
+import { buildImportedBundle } from './lib/plan-import.js'
 import { importHevyData, HevyApiError, HEVY_DEV_SETTINGS, mergeHevyRoutines } from './lib/import-hevy.js'
 import { buildPlanBundle, parsePlan, mergePlan, printPlan, planPrintHTML } from './lib/plan-share.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP, formulaOf, FORMULA_NAMES } from './lib/onerm.js'
@@ -2212,6 +2215,133 @@ function PlanImport({ bundle, close }) {
     <Button variant="primary" onClick={apply}>{t('Add to my plan')}</Button>
     <div style={{ height: 8 }} />
     <Button variant="ghost" className="dim" onClick={close}>{t('Cancel')}</Button>
+  </>
+}
+
+export const planPasteImportSheet = () => ui().openSheet(close => <PlanPasteImport close={close} />)
+
+/**
+ * Paste a whole plan, keep every exercise name.
+ *
+ * The AI is a reader here, not a coach: it transcribes days, names and prescriptions. The
+ * catalogue matching happens in lib/plan-import.js on this device, and anything it cannot
+ * identify becomes a custom exercise with the name the person wrote — never a different lift.
+ */
+function PlanPasteImport({ close }) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [preview, setPreview] = useState(null)
+  const [error, setError] = useState('')
+  const { job, pending, refresh, lastError } = useCoachStatus(true)
+  const built = useRef(null)
+  const parsed = useRef(null)
+  const forced = useRef(new Set())
+
+  // Rebuild the preview with the current "keep this one as written" choices. The parse stays
+  // on the device; only the matching decision changes.
+  const rebuild = async names => {
+    if (!parsed.current) return
+    setBusy(true); setError('')
+    try { setPreview(await buildImportedBundle(parsed.current, { forceCustom: [...names] })) }
+    catch (e) { setError(e?.message || t('That plan could not be read.')) }
+    finally { setBusy(false) }
+  }
+
+  const toggleMatch = row => {
+    const next = new Set(forced.current)
+    if (next.has(row.original)) next.delete(row.original)
+    else next.add(row.original)
+    forced.current = next
+    rebuild(next)
+  }
+
+  useEffect(() => {
+    if (!lastError) return
+    setBusy(false)
+    setError(typeof lastError === 'string' ? lastError : t('That plan could not be read.'))
+  }, [lastError])
+
+  useEffect(() => {
+    if (pending?.kind !== 'import' || !pending.import || built.current === pending.id) return
+    built.current = pending.id
+    parsed.current = pending.import
+    forced.current = new Set()
+    setBusy(true)
+    buildImportedBundle(pending.import)
+      .then(r => { setPreview(r); setBusy(false) })
+      .catch(e => { setError(e?.message || t('That plan could not be read.')); setBusy(false) })
+  }, [pending?.id, pending?.kind])
+
+  const read = async () => {
+    const plan = text.trim()
+    if (!plan) { setError(t('Paste a plan first.')); return }
+    setError(''); setPreview(null); setBusy(true)
+    try { await requestImport(plan); await refresh() }
+    catch (e) { setError(e?.message || t('That plan could not be read.')); setBusy(false) }
+  }
+
+  const apply = () => {
+    if (!preview?.bundle?.routines?.length) return
+    try {
+      const p = { id: 'import-' + (pending?.id || uid()), bundle: preview.bundle, summary: preview.bundle.summary, iteration: 1 }
+      update(s => applyCreatedPlan(s, p, { schedule: false }))
+      resolvePending({ accepted: ['import'] }).catch(() => {})
+      toast(tn('Added {0} routine to your plan', 'Added {0} routines to your plan', preview.bundle.routines.length))
+      close(); nav('/plan')
+    } catch (e) { setError(e?.message || t('That plan could not be read.')) }
+  }
+
+  const discard = () => {
+    if (pending?.kind === 'import') resolvePending({ dismissed: true }).catch(() => {})
+    close()
+  }
+
+  const working = busy || !!job
+  const count = preview?.bundle?.routines?.reduce((n, r) => n + r.ex.length, 0) || 0
+  const customs = preview?.bundle?.customEx?.length || 0
+
+  return <>
+    <h3>{t('Import a plan from text')}</h3>
+    <div className="muted small" style={{ marginBottom: 12, lineHeight: 1.45 }}>
+      {t('Paste the whole plan — every day at once. The Coach only reads it: exercises are matched to your library, and anything it does not know is created with the name you wrote, never swapped for another movement.')}
+    </div>
+    {!preview && <>
+      <textarea className="input" rows={10} maxLength={20000} value={text} disabled={working}
+        placeholder={t('Monday — push\nBench press 3×8–12\nCable fly 3×12\n…')}
+        onChange={e => setText(e.target.value)} />
+      <div className="dim small" style={{ textAlign: 'right', marginTop: 4 }}>{text.length} / 20000</div>
+      {working && <div className="muted small" style={{ marginTop: 8 }}>{t('Reading the plan… this can take a minute.')}</div>}
+      {error && <div className="small" style={{ color: 'var(--red)', marginTop: 8 }}>{error}</div>}
+      <div style={{ height: 14 }} />
+      <Button variant="primary" icon="sparkles" onClick={read} disabled={working || !text.trim()}>{t('Read my plan')}</Button>
+      <div style={{ height: 8 }} />
+      <Button variant="ghost" className="dim" onClick={close}>{t('Cancel')}</Button>
+    </>}
+    {preview && <>
+      <div className="row between" style={{ marginBottom: 10 }}>
+        <div className="muted small">{tn('{0} routine', '{0} routines', preview.bundle.routines.length)} · {tn('{0} exercise', '{0} exercises', count)}</div>
+        {customs > 0 && <div className="small" style={{ color: 'var(--orange)' }}>{tn('{0} new exercise', '{0} new exercises', customs)}</div>}
+      </div>
+      <div style={{ maxHeight: '50vh', overflow: 'auto', borderTop: '1px solid var(--sep)' }}>
+        {preview.report.map((r, i) => <div key={i} style={{ padding: '10px 0', borderBottom: '1px solid var(--sep)' }}>
+          <div className="tt" style={{ marginBottom: 6 }}>{r.name}</div>
+          {r.ex.map((x, j) => <div key={j} className="row between" style={{ gap: 10, padding: '4px 0' }}>
+            <div className="grow">
+              <div className="small">{x.original}</div>
+              <div className="dim small">{x.matched ? t('→ {0}', exerciseNameFor(EXIDX[x.id])) : t('New exercise, kept as written')}</div>
+              {(x.matched || x.forced) && <button className="chip nocap" style={{ marginTop: 4, cursor: 'pointer' }}
+                onClick={() => toggleMatch(x)}>{x.forced ? t('Try a library match') : t('Keep as a new exercise')}</button>}
+            </div>
+            <span className="chip nocap" style={{ color: x.matched ? 'var(--accent)' : 'var(--orange)' }}>{x.matched ? t('Library') : t('New')}</span>
+          </div>)}
+        </div>)}
+      </div>
+      {error && <div className="small" style={{ color: 'var(--red)', marginTop: 8 }}>{error}</div>}
+      <div style={{ height: 14 }} />
+      <Button variant="primary" onClick={apply}>{t('Add to my plan')}</Button>
+      <div style={{ height: 8 }} />
+      <Button variant="ghost" className="dim" onClick={discard}>{t('Discard')}</Button>
+    </>}
   </>
 }
 

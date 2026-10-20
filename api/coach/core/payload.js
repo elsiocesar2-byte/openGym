@@ -29,6 +29,10 @@ export const NOTE_MAX = 500;
 // It has to stay >= config.js's MAX_MESSAGE_LEN_CEILING, or a raised admin limit would still get
 // clipped back down here.
 export const MAX_NOTE_CHARS = 4000;
+// A pasted plan is a different size class from a chat note: a full three-day Chinese split with
+// sets, reps, weights and notes is ~3-6k characters, and people paste more than one week.
+// Parsing does not need the plan or the library, so this is the only large field in the payload.
+export const MAX_IMPORT_CHARS = 20000;
 // The ceiling on a whole payload, as JSON characters, which the server checks before a job
 // leaves (jobs.js). Every field below is bounded on its own; this is the backstop for how many
 // of them there are, and for a field added later that nobody bounded. A deliberately extreme
@@ -485,7 +489,9 @@ export function build(S, opts = {}) {
   const profile = opts.intake || coach.profile || null;
   const p = {
     coach_contract: CONTRACT,
-    task: opts.kind === 'review' ? 'review' : opts.kind === 'debrief' ? 'debrief' : 'create',
+    task: opts.kind === 'review' ? 'review'
+      : opts.kind === 'debrief' ? 'debrief'
+        : opts.kind === 'import' ? 'import' : 'create',
     meta: {
       profile: opts.handle,
       // Both are short codes in any real state; cut anyway, since the state is the client's.
@@ -515,7 +521,13 @@ export function build(S, opts = {}) {
     .slice(-15);
   if (declined.length) p.previouslyDeclined = declined;
 
-  if (opts.kind === 'debrief') {
+  if (opts.kind === 'import') {
+    // Transcription only: no library (the model must not pick from it), no history, no week.
+    // The plan is kept because a duplicate exercise already in the user's routine is worth
+    // knowing about, but it is context, not a source of ids.
+    p.importText = String(opts.importText || '').slice(0, MAX_IMPORT_CHARS);
+    delete p.library;
+  } else if (opts.kind === 'debrief') {
     // One session, read closely: the workout itself, the last few times the same routine was
     // trained, and the stall picture for the exercises in it. No library — a debrief changes
     // nothing and names nothing new.
@@ -579,7 +591,7 @@ export function build(S, opts = {}) {
       p.userNote = String(opts.refine).slice(0, MAX_NOTE_CHARS);
     }
   }
-  if (opts.kind !== 'debrief') {
+  if (opts.kind !== 'debrief' && opts.kind !== 'import') {
     const said = conversation(coach, [opts.note, opts.refine]);
     if (said.length) p.conversation = said;
   }

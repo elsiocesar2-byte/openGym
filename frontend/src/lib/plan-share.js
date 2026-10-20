@@ -67,6 +67,14 @@ function convertedBundle(bundle, destinationUnit) {
 }
 
 // Keep only the meaningful config fields, so the file stays small and readable.
+const ALT_CFG_KEYS = ['sets', 'mode', 'reps', 'repsMin', 'repsMax', 'sec', 'min', 'speed', 'weight', 'note', 'side', 'bodyweight', 'prog', 'inc', 'restSec', 'warmupSets', 'dbLoad', 'lastToFailure']
+function cleanAltCfg(v) {
+  if (!v || typeof v !== 'object') return null
+  const out = {}
+  for (const k of ALT_CFG_KEYS) if (v[k] != null) out[k] = v[k]
+  return Object.keys(out).length ? out : null
+}
+
 function cleanEx(e) {
   const o = { id: e.id, sets: e.sets }
   const mode = modeOf(e)
@@ -81,6 +89,10 @@ function cleanEx(e) {
     if (e.weight) o.weight = e.weight
   } else {
     if (e.reps != null) o.reps = e.reps
+    // A written range is `reps`/`repsMin`; dropping the floor turns "8-12" into "12" for the
+    // recipient, and a plan shared by the user must mean the same thing on the other phone.
+    if (e.repsMin != null) o.repsMin = e.repsMin
+    if (e.repsMax != null) o.repsMax = e.repsMax
     if (e.weight) o.weight = e.weight
     // Pyramid sets are the prescription itself; without them a "12 · 8 · 6 · Max · 12" arrives as 5 × 12.
     if (isPyramid(e)) {
@@ -121,6 +133,20 @@ function cleanEx(e) {
   if (e.warmupRestSec > 0) o.warmupRestSec = e.warmupRestSec   // the ramp's own rest travels with the work rest
   if (e.sg) o.sg = e.sg
   if (e.note) o.note = e.note
+  // The movements a plan says can stand in for this slot. Kept as ids so the routine screen can
+  // offer the swap; the note still carries the written names for the human reading it.
+  if (Array.isArray(e.alt) && e.alt.length) o.alt = e.alt.filter(x => x != null).slice(0, 6)
+  // An alternative can have its own numbers (a lighter dumbbell, a different machine). They are
+  // overrides keyed by exercise id; losing them on share turns every swap back into the main
+  // movement's load.
+  if (e.altCfg && typeof e.altCfg === 'object') {
+    const cfg = {}
+    for (const [id, v] of Object.entries(e.altCfg)) {
+      const c = cleanAltCfg(v)
+      if (id && c) cfg[id] = c
+    }
+    if (Object.keys(cfg).length) o.altCfg = cfg
+  }
   const warm = cleanWarmupSets(e.warmupSets)
   if (warm) o.warmupSets = warm
   // Drop-sets and rest-pause are part of how the exercise is prescribed, not a logging detail.
@@ -199,7 +225,9 @@ export function buildPlanBundle(S, name) {
     ...(r.excludeFromProgression === true ? { excludeFromProgression: true } : {}),
     ex: (r.ex || []).map(cleanEx)
   }))
-  const usedIds = new Set(routines.flatMap(r => r.ex.map(e => e.id)))
+  // An alternative is part of the plan too: a custom exercise named only there still has to
+  // travel, or the recipient gets a slot pointing at an id they do not have.
+  const usedIds = new Set(routines.flatMap(r => r.ex.flatMap(e => [e.id, ...(Array.isArray(e.alt) ? e.alt : [])])))
   const customEx = (S.customEx || [])
     .filter(c => usedIds.has(c.id))
     .map(cleanCustom)
@@ -251,6 +279,23 @@ export function parsePlan(raw, destinationUnit = 'kg') {
       const pyramidWeight = pyramid.length ? normalizePyramidWeight(e.pyramidWeight, pyramid.length) : []
       const { warmupSets, intensifier, restSec, warmupRestSec, pyramid: _pyramid, pyramidRest: _pyramidRest, pyramidWeight: _pyramidWeight, ...passthrough } = e
       if (!known.has(passthrough.id)) passthrough.id = canonicalExId(passthrough.id)
+      // An alternative that does not resolve is a dead id on the row: drop it, never keep it
+      // as a button that swaps to "Unknown exercise".
+      if (Array.isArray(passthrough.alt)) {
+        passthrough.alt = [...new Set(passthrough.alt.filter(a => known.has(a) || !!EXIDX[a]).map(a => (known.has(a) ? a : canonicalExId(a))))]
+          .filter(a => a && a !== passthrough.id).slice(0, 6)
+        if (!passthrough.alt.length) delete passthrough.alt
+      }
+      if (passthrough.altCfg && typeof passthrough.altCfg === 'object') {
+        const cfg = {}
+        for (const [oldId, v] of Object.entries(passthrough.altCfg)) {
+          const newId = known.has(oldId) ? oldId : canonicalExId(oldId)
+          const clean = cleanAltCfg(v)
+          if (newId && clean && Array.isArray(passthrough.alt) && passthrough.alt.includes(newId)) cfg[newId] = clean
+        }
+        if (Object.keys(cfg).length) passthrough.altCfg = cfg
+        else delete passthrough.altCfg
+      }
       return convertedExercise({ ...passthrough, ...(pyramid.length ? { pyramid } : {}), ...(pyramidRest.length ? { pyramidRest } : {}), ...(pyramidWeight.length ? { pyramidWeight } : {}), ...(warm ? { warmupSets: warm } : {}), ...(intens ? { intensifier: intens } : {}), ...(rest ? { restSec: rest } : {}), ...(warmRest ? { warmupRestSec: warmRest } : {}) }, sourceUnit || destination, destination)
     })
   }))
@@ -304,7 +349,20 @@ export function mergePlan(s, bundle, { schedule } = {}) {
       emoji: r.emoji,
       ...(r.prog ? { prog: r.prog } : {}),
       ...(r.excludeFromProgression === true ? { excludeFromProgression: true } : {}),
-      ex: (r.ex || []).map(e => ({ ...e, id: exIdMap[e.id] || canonicalExId(e.id) }))
+      ex: (r.ex || []).map(e => {
+        const id = exIdMap[e.id] || canonicalExId(e.id)
+        const alt = Array.isArray(e.alt)
+          ? [...new Set(e.alt.map(a => exIdMap[a] || canonicalExId(a)).filter(a => a && a !== id))].slice(0, 6)
+          : []
+        // The overrides follow the same id remap as the alternatives they belong to.
+        const altCfg = {}
+        for (const [oldId, cfg] of Object.entries(e.altCfg || {})) {
+          const newId = exIdMap[oldId] || canonicalExId(oldId)
+          const clean = cleanAltCfg(cfg)
+          if (newId && clean && alt.includes(newId)) altCfg[newId] = clean
+        }
+        return { ...e, id, ...(alt.length ? { alt } : {}), ...(Object.keys(altCfg).length ? { altCfg } : {}) }
+      })
     })
   })
   if (schedule) {
