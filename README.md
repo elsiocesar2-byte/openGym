@@ -1,3 +1,7 @@
+> **中文说明 / Chinese:** [README.zh-CN.md](README.zh-CN.md) · 本仓库是 AI 增强的个人
+> fork，改动见 [MODIFICATIONS.md](MODIFICATIONS.md)。官方项目：
+> [DuarteSantos8/openGym](https://github.com/DuarteSantos8/openGym)。
+
 <div align="center">
 
 <img src="assets/banner.png" alt="openGym" width="720">
